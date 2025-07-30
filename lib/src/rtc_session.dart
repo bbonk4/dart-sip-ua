@@ -22,11 +22,9 @@ import 'rtc_session/info.dart' as RTCSession_Info;
 import 'rtc_session/info.dart';
 import 'rtc_session/refer_notifier.dart';
 import 'rtc_session/refer_subscriber.dart';
-import 'sip_message.dart';
 import 'timers.dart';
 import 'transactions/transaction_base.dart';
 import 'ua.dart';
-import 'uri.dart';
 import 'utils.dart' as utils;
 
 class C {
@@ -1159,8 +1157,10 @@ class RTCSession extends EventManager implements Owner {
 
     bool? upgradeToVideo;
     try {
+      logger.w("options with constr: $options");
+      logger.w("rtc with constr: $rtcOfferConstraints");
       upgradeToVideo = (options['mediaConstraints']?['video'] != false ||
-              options['mediaConstraints']?['mandatory']?['video'] != null) &&
+              options['mediaConstraints']?['mandatory']?['video'] != false) &&
           rtcOfferConstraints?['offerToReceiveVideo'] == null;
     } catch (e) {
       print('Failed to determine upgrade to video: $e');
@@ -1194,6 +1194,7 @@ class RTCSession extends EventManager implements Owner {
         'extraHeaders': options['extraHeaders']
       });
     } else {
+      logger.w("upgrade to video: $upgradeToVideo");
       if (upgradeToVideo ?? false) {
         _sendVideoUpgradeReinvite(<String, dynamic>{
           'eventHandlers': handlers,
@@ -2356,7 +2357,7 @@ class RTCSession extends EventManager implements Owner {
             'User Denied Media Access');
         logger.e('emit "getusermediafailed" [error:${error.toString()}]');
         emit(EventGetUserMediaFailed(exception: error));
-        throw error;
+        rethrow;
       }
     }
 
@@ -2408,7 +2409,7 @@ class RTCSession extends EventManager implements Owner {
         return;
       }
       logger.e('Failed to _sendInitialRequest: ${error.toString()}');
-      throw error;
+      rethrow;
     }
   }
 
@@ -2737,6 +2738,7 @@ class RTCSession extends EventManager implements Owner {
       if (_status == C.STATUS_TERMINATED) {
         throw Exceptions.InvalidStateError('terminated');
       }
+      logger.w("Error: $error");
       request.reply(480);
       _failed(
           'local',
@@ -3064,7 +3066,7 @@ class RTCSession extends EventManager implements Owner {
   }
 
   /// SDP offers may contain text media channels. e.g. Older clients using linphone.
-  /// 
+  ///
   /// WebRTC does not support text media channels, so remove them.
   String? _sdpOfferToWebRTC(String? sdpInput) {
     if (sdpInput == null) {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:logger/logger.dart';
 import 'package:sdp_transform/sdp_transform.dart' as sdp_transform;
+
 import 'package:sip_ua/sip_ua.dart';
 import 'package:sip_ua/src/event_manager/internal_events.dart';
 import 'package:sip_ua/src/map_helper.dart';
@@ -17,7 +18,6 @@ import 'message.dart';
 import 'options.dart';
 import 'rtc_session.dart';
 import 'rtc_session/refer_subscriber.dart';
-import 'sip_message.dart';
 import 'stack_trace_nj.dart';
 import 'subscriber.dart';
 import 'transports/web_socket.dart';
@@ -103,6 +103,7 @@ class SIPUAHelper extends EventManager {
       if (mediaStream != null) {
         options['mediaStream'] = mediaStream;
       }
+      logger.w('Call options: $options');
       List<dynamic> extHeaders = options['extraHeaders'] as List<dynamic>;
       extHeaders.addAll(headers ?? <String>[]);
       options['extraHeaders'] = extHeaders;
@@ -150,7 +151,10 @@ class SIPUAHelper extends EventManager {
       _settings.sockets!.add(socket);
     }
 
+
     if (uaSettings.transportType == TransportType.WS) {
+      logger.d('WebSocket URL: ${uaSettings.webSocketUrl}');
+
       SIPUAWebSocket socket = SIPUAWebSocket(
           uaSettings.webSocketUrl ?? 'wss://tryit.jssip.net:10443',
           messageDelay: _settings.sip_message_delay,
@@ -180,12 +184,13 @@ class SIPUAHelper extends EventManager {
     _settings.instance_id = uaSettings.instanceId;
     _settings.registrar_server = uaSettings.registrarServer;
     _settings.contact_uri = uaSettings.contact_uri;
-    _settings.connection_recovery_max_interval = 
+    _settings.connection_recovery_max_interval =
         uaSettings.connectionRecoveryMaxInterval;
-    _settings.connection_recovery_min_interval = 
+    _settings.connection_recovery_min_interval =
         uaSettings.connectionRecoveryMinInterval;
     _settings.terminateOnAudioMediaPortZero =
         uaSettings.terminateOnMediaPortZero;
+
 
     try {
       _ua = UA(_settings);
@@ -414,7 +419,8 @@ class SIPUAHelper extends EventManager {
     return _ua!.sendMessage(target, body, options, params);
   }
 
-  Options sendOptions(String target, String body, Map<String, dynamic>? params) {
+  Options sendOptions(
+      String target, String body, Map<String, dynamic>? params) {
     return _ua!.sendOptions(target, body, params);
   }
 
@@ -555,31 +561,45 @@ class Call {
     refer.on(EventReferFailed(), (EventReferFailed data) {});
   }
 
-  void hangup([Map<String, dynamic>? options]) {
+  // Updated hangup method with async senders/receivers cleanup
+  Future<void> hangup([Map<String, dynamic>? options]) async {
     assert(_session != null, 'ERROR(hangup): rtc session is invalid!');
-    if (peerConnection != null) {
-      for (MediaStream? stream in peerConnection!.getLocalStreams()) {
-        if (stream == null) continue;
-        logger.d(
-            'Stopping local stream with tracks: ${stream.getTracks().length}');
-        for (MediaStreamTrack track in stream.getTracks()) {
-          logger.d('Stopping track: ${track.kind}${track.id} ');
-          track.stop();
+
+    // 1) Terminate the SIP session (send BYE)
+    _session.terminate(options);
+
+    // 2) Clean up WebRTC media and connection
+    final pc = peerConnection;
+    if (pc != null) {
+      try {
+        // Stop all outgoing tracks via RTCRtpSenders
+        final senders = await pc.getSenders();
+        for (final sender in senders) {
+          final track = sender.track;
+          if (track != null) {
+            logger.d('Stopping sender track: ${track.kind} ${track.id}');
+            track.stop();
+          }
         }
-      }
-      for (MediaStream? stream in peerConnection!.getRemoteStreams()) {
-        if (stream == null) continue;
-        logger.d(
-            'Stopping remote stream with tracks: ${stream.getTracks().length}');
-        for (MediaStreamTrack track in stream.getTracks()) {
-          logger.d('Stopping track: ${track.kind}${track.id} ');
-          track.stop();
+
+        // Stop all incoming tracks via RTCRtpReceivers
+        final receivers = await pc.getReceivers();
+        for (final receiver in receivers) {
+          final track = receiver.track;
+          if (track != null) {
+            logger.d('Stopping receiver track: ${track.kind} ${track.id}');
+            track.stop();
+          }
         }
+
+        // Close the peer connection
+        pc.close();
+      } catch (e) {
+        logger.e('Error during hangup cleanup: \$e');
       }
     } else {
       logger.d("peerConnection is null, can't stop tracks.");
     }
-    _session.terminate(options);
   }
 
   void hold() {
