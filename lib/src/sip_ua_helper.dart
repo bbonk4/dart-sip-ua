@@ -556,30 +556,69 @@ class Call {
   }
 
   void hangup([Map<String, dynamic>? options]) {
-    assert(_session != null, 'ERROR(hangup): rtc session is invalid!');
+    // Clean up media streams safely
     if (peerConnection != null) {
-      for (MediaStream? stream in peerConnection!.getLocalStreams()) {
-        if (stream == null) continue;
-        logger.d(
-            'Stopping local stream with tracks: ${stream.getTracks().length}');
-        for (MediaStreamTrack track in stream.getTracks()) {
-          logger.d('Stopping track: ${track.kind}${track.id} ');
-          track.stop();
+      try {
+        // Handle local streams
+        final localStreams = peerConnection!.getLocalStreams();
+        if (localStreams != null) {
+          for (MediaStream? stream in localStreams) {
+            if (stream == null) continue;
+            try {
+              final tracks = stream.getTracks();
+              logger.d('Stopping local stream with tracks: ${tracks.length}');
+              for (MediaStreamTrack track in tracks) {
+                try {
+                  logger.d('Stopping track: ${track.kind}${track.id} ');
+                  track.stop();
+                } catch (e) {
+                  logger.e('Error stopping track: $e');
+                }
+              }
+            } catch (e) {
+              logger.e('Error processing local stream: $e');
+            }
+          }
+        } else {
+          logger.d('getLocalStreams() returned null');
         }
-      }
-      for (MediaStream? stream in peerConnection!.getRemoteStreams()) {
-        if (stream == null) continue;
-        logger.d(
-            'Stopping remote stream with tracks: ${stream.getTracks().length}');
-        for (MediaStreamTrack track in stream.getTracks()) {
-          logger.d('Stopping track: ${track.kind}${track.id} ');
-          track.stop();
+        
+        // Handle remote streams
+        final remoteStreams = peerConnection!.getRemoteStreams();
+        if (remoteStreams != null) {
+          for (MediaStream? stream in remoteStreams) {
+            if (stream == null) continue;
+            try {
+              final tracks = stream.getTracks();
+              logger.d('Stopping remote stream with tracks: ${tracks.length}');
+              for (MediaStreamTrack track in tracks) {
+                try {
+                  logger.d('Stopping track: ${track.kind}${track.id} ');
+                  track.stop();
+                } catch (e) {
+                  logger.e('Error stopping track: $e');
+                }
+              }
+            } catch (e) {
+              logger.e('Error processing remote stream: $e');
+            }
+          }
+        } else {
+          logger.d('getRemoteStreams() returned null');
         }
+      } catch (e) {
+        logger.e('Error during stream cleanup: $e');
       }
     } else {
       logger.d("peerConnection is null, can't stop tracks.");
     }
-    _session.terminate(options);
+    
+    // Terminate the session
+    try {
+      _session.terminate(options);
+    } catch (e) {
+      logger.e('Error terminating session: $e');
+    }
   }
 
   void hold() {
