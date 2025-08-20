@@ -4,7 +4,7 @@ import '../grammar.dart';
 import '../logger.dart';
 
 import 'websocket_dart_impl.dart'
-    if (dart.library.js) 'websocket_web_impl.dart';
+    if (dart.library.js_interop) 'websocket_web_impl.dart';
 
 class SIPUAWebSocket extends SIPUASocketInterface {
   SIPUAWebSocket(String url,
